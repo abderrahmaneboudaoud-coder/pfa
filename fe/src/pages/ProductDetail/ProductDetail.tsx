@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  AreaChart, Area, LineChart, Line,
   CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
@@ -129,6 +129,17 @@ function SentimentQuote({ label, text, username, confidence, variant }: {
   );
 }
 
+function WordCloudImage({ src, alt }: { src: string; alt: string }) {
+  if (!src) return <p className="text-xs text-stone-400 text-center py-6">No data</p>;
+  return (
+    <img
+      src={`data:image/png;base64,${src}`}
+      alt={alt}
+      className="w-full rounded-xl border border-stone-100 shadow-sm"
+    />
+  );
+}
+
 function ReviewCard({ review }: { review: Review }) {
   return (
     <div className="bg-stone-50 hover:bg-stone-100/80 transition-colors rounded-xl p-4 space-y-2 border border-stone-100">
@@ -238,14 +249,6 @@ export function ProductDetail({ productId, onBack }: Props) {
     }));
 
   const { star_distribution: sd } = rva;
-  const starDistData = [
-    { star: '5★', count: sd.five  },
-    { star: '4★', count: sd.four  },
-    { star: '3★', count: sd.three },
-    { star: '2★', count: sd.two   },
-    { star: '1★', count: sd.one   },
-  ];
-
   const priceTrend  = pa.price_change_pct;
   const priceDown   = priceTrend != null && priceTrend < 0;
 
@@ -401,9 +404,7 @@ export function ProductDetail({ productId, onBack }: Props) {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
-
-          {/* Star distribution (progress bars) */}
+        <div className="mb-5">
           <SectionCard title="Review Distribution" subtitle="Breakdown of scraped customer reviews by star rating">
             <div className="flex items-center gap-5 mb-6">
               <div className="text-center">
@@ -426,28 +427,6 @@ export function ProductDetail({ productId, onBack }: Props) {
               <StarBar label="2" count={sd.two}   total={rva.total_reviews} />
               <StarBar label="1" count={sd.one}   total={rva.total_reviews} />
             </div>
-          </SectionCard>
-
-          {/* Bar chart */}
-          <SectionCard title="Star Breakdown" subtitle="Visual count per rating">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={starDistData} layout="vertical" barSize={16}>
-                <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} horizontal={false} />
-                <XAxis type="number" tick={TICK_STYLE} />
-                <YAxis type="category" dataKey="star" tick={{ ...TICK_STYLE, fontWeight: 600 }} width={32} />
-                <Tooltip contentStyle={CHART_STYLE} />
-                <Bar dataKey="count" radius={[0, 6, 6, 0]}
-                  fill="url(#starGrad)"
-                  label={{ position: 'insideRight', fontSize: 10, fill: '#fff', fontWeight: 700 }}
-                />
-                <defs>
-                  <linearGradient id="starGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%"   stopColor="#fbbf24" />
-                    <stop offset="100%" stopColor="#f59e0b" />
-                  </linearGradient>
-                </defs>
-              </BarChart>
-            </ResponsiveContainer>
           </SectionCard>
         </div>
 
@@ -542,6 +521,26 @@ export function ProductDetail({ productId, onBack }: Props) {
                           confidence={sentiment.top_negative.confidence}
                         />
                       )}
+                    </div>
+                  )}
+
+                  {/* Word cloud images */}
+                  {sentiment.word_cloud && (
+                    sentiment.word_cloud.positive_image || sentiment.word_cloud.negative_image
+                  ) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-2">
+                          Words in positive reviews
+                        </p>
+                        <WordCloudImage src={sentiment.word_cloud.positive_image} alt="Positive review word cloud" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-rose-600 mb-2">
+                          Words in negative reviews
+                        </p>
+                        <WordCloudImage src={sentiment.word_cloud.negative_image} alt="Negative review word cloud" />
+                      </div>
                     </div>
                   )}
                 </div>

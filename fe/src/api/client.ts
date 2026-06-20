@@ -120,6 +120,7 @@ export interface SentimentResult {
   distribution: { positive: number; neutral: number; negative: number };
   top_positive: SentimentHighlight | null;
   top_negative: SentimentHighlight | null;
+  word_cloud: { positive_image: string; negative_image: string };
 }
 
 export interface ComparisonSide {
@@ -199,6 +200,10 @@ export interface PlatformOverview {
   platforms: PlatformStat[];
 }
 
+export interface CategoriesResponse {
+  categories: string[];
+}
+
 export interface ScrapeJob {
   message: string;
   task_id: string;
@@ -233,7 +238,9 @@ export const api = {
   getLatestReviews:  (id: string, n = 50) => get<Review[]>(`/products/${id}/latest-reviews?limit=${n}`),
   getSentiment:      (id: string)         => get<SentimentResult>(`/products/${id}/sentiment`),
   getAuthenticity:     (id: string)    => get<AuthenticityResult>(`/products/${id}/authenticity`),
-  getPlatformOverview: ()              => get<PlatformOverview>('/platforms/overview'),
+  getPlatformOverview: (category?: string) =>
+    get<PlatformOverview>(category ? `/platforms/overview?category=${encodeURIComponent(category)}` : '/platforms/overview'),
+  getCategories: () => get<CategoriesResponse>('/platforms/categories'),
   compare: (aId: string, bId: string) =>
     get<ComparisonResult>(`/products/compare?product_a_id=${aId}&product_b_id=${bId}`),
   startScrape:       (url: string, site: string) =>

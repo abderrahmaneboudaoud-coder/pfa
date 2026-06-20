@@ -15,7 +15,7 @@ class Comment:
 
 class Product:
     def __init__(self, img_url, price, rev, stars, name,
-                 old_price=None, discount_rate=None, currency=None):
+                 old_price=None, discount_rate=None, currency=None, category=None):
 
         self.img_url = img_url
         self.price = price
@@ -27,6 +27,7 @@ class Product:
         self.discount_rate = discount_rate
         self.is_discount = old_price is not None
         self.currency = currency
+        self.category = category
 
     def set_comments(self, comments):
         self.comments = comments

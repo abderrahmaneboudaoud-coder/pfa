@@ -1,26 +1,73 @@
+import base64
+import io
 import re
+from collections import Counter
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from bson import ObjectId
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from wordcloud import WordCloud
 from db.connection import get_collection
 
-# Lazy singleton — loaded on first sentiment request, not at import time
-_sentiment_pipe = None
+_vader = SentimentIntensityAnalyzer()
 
-def _get_sentiment_pipe():
-    global _sentiment_pipe
-    if _sentiment_pipe is None:
-        from transformers import pipeline
-        _sentiment_pipe = pipeline(
-            "text-classification",
-            model="lxyuan/distilbert-base-multilingual-cased-sentiments-student",
-            top_k=1,
-            device=-1,       # CPU
-            truncation=True,
-            max_length=512,
-        )
-    return _sentiment_pipe
+_STOPWORDS = {
+    # English
+    "the","a","an","and","or","but","in","on","at","to","for","of","with",
+    "is","it","its","this","that","was","are","be","been","have","has","i",
+    "my","me","we","our","you","your","he","she","they","them","his","her",
+    "not","very","so","just","as","if","by","from","up","out","about","into",
+    "do","did","would","could","should","will","can","get","got","also","more",
+    "than","too","no","all","any","some","one","two","three","product","item",
+    # French
+    "le","la","les","un","une","des","et","ou","de","du","au","aux","en",
+    "je","tu","il","elle","nous","vous","ils","elles","ce","cet","cette",
+    "mon","ma","mes","son","sa","ses","est","sont","pas","ne","que","qui",
+    "pour","sur","dans","avec","par","mais","si","bien","très","bon","bonne",
+    # Arabic common particles
+    "في","من","على","إلى","هذا","هذه","مع","كان","كانت","هو","هي",
+    "لي","لا","ما","كل","أن","إن",
+}
+
+
+def _vader_label(compound: float) -> str:
+    if compound >= 0.05:
+        return "positive"
+    if compound <= -0.05:
+        return "negative"
+    return "neutral"
+
+
+def _extract_words(comments: List[dict]) -> List[str]:
+    words = []
+    for c in comments:
+        text = f"{c.get('title', '')} {c.get('comment', '')}".lower()
+        words.extend(re.findall(r"[a-zA-ZÀ-ÿ؀-ۿ]{3,}", text))
+    return [w for w in words if w not in _STOPWORDS]
+
+
+def _top_words(words: List[str], n: int = 30) -> List[dict]:
+    return [{"word": w, "count": c} for w, c in Counter(words).most_common(n)]
+
+
+def _wordcloud_image(words: List[str], colormap: str) -> str:
+    """Return a base64-encoded PNG word cloud, or '' if there are no words."""
+    if not words:
+        return ""
+    freq = Counter(words)
+    wc = WordCloud(
+        width=600,
+        height=280,
+        background_color="white",
+        colormap=colormap,
+        max_words=60,
+        prefer_horizontal=0.85,
+        margin=4,
+    ).generate_from_frequencies(freq)
+    buf = io.BytesIO()
+    wc.to_image().save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
 
 products_col = get_collection("products")
 history_col = get_collection("products_history")
@@ -47,12 +94,17 @@ class AnalysisRepository:
             doc["_id"] = str(doc["_id"])
         return doc
 
-    def get_all_products(self) -> List[dict]:
+    def get_all_products(self, category: Optional[str] = None) -> List[dict]:
+        query = {"category": category} if category else {}
         docs = []
-        for doc in products_col.find({}):
+        for doc in products_col.find(query):
             doc["_id"] = str(doc["_id"])
             docs.append(doc)
         return docs
+
+    def get_all_categories(self) -> List[str]:
+        cats = products_col.distinct("category")
+        return sorted([c for c in cats if c])
 
     def get_products_by_platform(self, platform: str) -> List[dict]:
         docs = []
@@ -176,9 +228,9 @@ class AnalysisRepository:
 
     def compute_sentiment(self, comments: List[dict]) -> dict:
         """
-        Run multilingual sentiment analysis (EN/AR/FR/ES + more) on comment texts.
-        Uses distilbert-base-multilingual-cased fine-tuned for sentiment.
-        Returns distribution, overall label, compound score, and top examples.
+        VADER-based sentiment analysis. Provides positive / neutral / negative
+        distribution with compound polarity score, example quotes, and word-cloud data.
+        Compound >= 0.05 → positive, <= -0.05 → negative, else neutral.
         """
         _empty = {
             "total_analyzed": 0,
@@ -187,38 +239,39 @@ class AnalysisRepository:
             "distribution": {"positive": 0, "neutral": 0, "negative": 0},
             "top_positive": None,
             "top_negative": None,
+            "word_cloud": {"positive_image": "", "negative_image": ""},
         }
         if not comments:
             return _empty
 
-        pipe = _get_sentiment_pipe()
-        dist = {"positive": 0, "neutral": 0, "negative": 0}
+        dist: dict = {"positive": 0, "neutral": 0, "negative": 0}
         compound_sum = 0.0
         analyzed = 0
-        best_pos = (0.0, None)
-        best_neg = (0.0, None)
+        best_pos = (-1.0, None)
+        best_neg = (1.0, None)
+        pos_comments: List[dict] = []
+        neg_comments: List[dict] = []
 
         for c in comments:
-            text = f"{c.get('title', '')} {c.get('comment', '')}".strip()[:512]
+            text = f"{c.get('title', '')} {c.get('comment', '')}".strip()
             if not text:
                 continue
-            try:
-                raw = pipe(text)
-                # top_k=1 → [[{"label": "...", "score": ...}]]
-                pred = raw[0][0] if isinstance(raw[0], list) else raw[0]
-                label = pred["label"].lower()
-                score = float(pred["score"])
+            scores = _vader.polarity_scores(text[:512])
+            compound = scores["compound"]
+            label = _vader_label(compound)
 
-                dist[label] = dist.get(label, 0) + 1
-                compound_sum += score if label == "positive" else (-score if label == "negative" else 0)
-                analyzed += 1
+            dist[label] += 1
+            compound_sum += compound
+            analyzed += 1
 
-                if label == "positive" and score > best_pos[0]:
-                    best_pos = (score, c)
-                elif label == "negative" and score > best_neg[0]:
-                    best_neg = (score, c)
-            except Exception:
-                continue
+            if label == "positive":
+                pos_comments.append(c)
+                if compound > best_pos[0]:
+                    best_pos = (compound, c)
+            elif label == "negative":
+                neg_comments.append(c)
+                if compound < best_neg[0]:
+                    best_neg = (compound, c)
 
         if not analyzed:
             return _empty
@@ -235,7 +288,7 @@ class AnalysisRepository:
                 "username": c.get("username", ""),
                 "title": c.get("title", ""),
                 "comment": (c.get("comment") or "")[:250],
-                "confidence": round(score, 3),
+                "confidence": round(abs(score), 3),
             }
 
         return {
@@ -245,6 +298,10 @@ class AnalysisRepository:
             "distribution": dist,
             "top_positive": _clip(best_pos[1], best_pos[0]),
             "top_negative": _clip(best_neg[1], best_neg[0]),
+            "word_cloud": {
+                "positive_image": _wordcloud_image(_extract_words(pos_comments), "Greens"),
+                "negative_image": _wordcloud_image(_extract_words(neg_comments), "Reds"),
+            },
         }
 
     def compute_authenticity_score(self, comments: List[dict], history: List[dict]) -> dict:

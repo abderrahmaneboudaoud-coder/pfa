@@ -127,6 +127,17 @@ def scrape_product(soup: BeautifulSoup) -> Product:
         star_content = star_icon_div.find("div", class_="star_content")
         stars = parse_stars_from_container(star_content)
 
+    # Category from breadcrumb
+    category = None
+    breadcrumb = soup.find("ol", class_="breadcrumb")
+    if breadcrumb:
+        items = [li.get_text(strip=True) for li in breadcrumb.find_all("li") if li.get_text(strip=True)]
+        # Skip first (home) and last (product name), pick the middle as category
+        if len(items) >= 3:
+            category = items[-2]
+        elif len(items) == 2:
+            category = items[0]
+
     return Product(
         img_url=img_url,
         price=price,
@@ -136,6 +147,7 @@ def scrape_product(soup: BeautifulSoup) -> Product:
         old_price=old_price,
         discount_rate=discount_rate,
         currency="MAD",
+        category=category,
     )
 
 

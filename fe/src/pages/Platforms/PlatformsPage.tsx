@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { api, type PlatformStat, type PlatformOverview } from "../../api/client";
 
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -58,7 +59,7 @@ function HealthRing({ score }: { score: number }) {
   const off  = circ - (score / 100) * circ;
   const col  = score >= 65 ? "#10b981" : score >= 40 ? "#f59e0b" : "#f43f5e";
   return (
-    <div className="relative w-16 h-16 flex items-center justify-center flex-shrink-0">
+    <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
       <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 64 64">
         <circle cx="32" cy="32" r={r} fill="none" stroke="#f5f5f4" strokeWidth="5" />
         <circle
@@ -92,7 +93,7 @@ function PlatformCard({ p, score }: { p: PlatformStat; score: number }) {
         <div className="flex items-start justify-between mb-5">
           <div className="flex items-center gap-3">
             <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-black text-white flex-shrink-0"
+              className="w-11 h-11 rounded-xl flex items-center justify-center text-lg font-black text-white shrink-0"
               style={{ backgroundColor: col }}
             >
               {p.name[0]}
@@ -199,16 +200,26 @@ function PlatformCard({ p, score }: { p: PlatformStat; score: number }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export function PlatformsPage() {
-  const [data,    setData]    = useState<PlatformOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [data,       setData]       = useState<PlatformOverview | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [category,   setCategory]   = useState<string>("");
 
   useEffect(() => {
-    api.getPlatformOverview()
+    api.getCategories()
+      .then(r => setCategories(r.categories))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    api.getPlatformOverview(category || undefined)
       .then(setData)
       .catch(() => setError("Failed to load platform data — check that the API is running."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [category]);
 
   const derived = useMemo(() => {
     if (!data || data.platforms.length === 0) return null;
@@ -227,7 +238,7 @@ export function PlatformsPage() {
     return { platforms: data.platforms, maxReviews, healthScores, chartData };
   }, [data]);
 
-  if (loading) return <LoadingSkeleton />;
+  if (loading && !data) return <LoadingSkeleton />;
 
   if (error || !derived) {
     return (
@@ -277,6 +288,54 @@ export function PlatformsPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
+
+      {/* ── Category Filter Bar ──────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-stone-100 shadow-sm px-5 py-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-stone-400 shrink-0">Filter by category</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setCategory("")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                !category
+                  ? "bg-stone-800 text-white shadow-sm"
+                  : "bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-700"
+              }`}
+            >
+              All Categories
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategory(cat === category ? "" : cat)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  category === cat
+                    ? "bg-stone-800 text-white shadow-sm"
+                    : "bg-stone-100 text-stone-500 hover:bg-stone-200 hover:text-stone-700"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+            {categories.length === 0 && (
+              <span className="text-xs text-stone-400 italic">No categories scraped yet — categories are extracted during scraping</span>
+            )}
+          </div>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {loading && data && (
+              <svg className="w-3.5 h-3.5 text-stone-400 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" strokeLinecap="round" />
+              </svg>
+            )}
+            {category && (
+              <span className="text-xs text-stone-500">
+                Showing <strong className="text-stone-700">{category}</strong>
+                <button onClick={() => setCategory("")} className="ml-1.5 text-stone-400 hover:text-stone-600">✕</button>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* ── Platform Hero Cards ──────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -477,7 +536,7 @@ export function PlatformsPage() {
                               </div>
                             )}
                             <div className="min-w-0">
-                              <p className="text-xs font-medium text-stone-700 truncate max-w-[160px]">{product.name ?? "Unnamed"}</p>
+                              <p className="text-xs font-medium text-stone-700 truncate max-w-40">{product.name ?? "Unnamed"}</p>
                               <p className="text-[11px] font-bold" style={{ color: col }}>{metric}</p>
                             </div>
                           </div>

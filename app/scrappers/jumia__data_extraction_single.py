@@ -218,6 +218,16 @@ def scrape_product(html: str, url: str) -> dict:
         except ValueError:
             pass
 
+    # Category from breadcrumb
+    category = None
+    breadcrumb_links = soup.select("a[data-type='breadcrumb']") or soup.select(".-df.-i-ctr a")
+    skip = {"home", "accueil", ""}
+    for link in breadcrumb_links:
+        text = link.get_text(strip=True)
+        if text.lower() not in skip:
+            category = text
+            break
+
     # ── SKU → reviews ─────────────────────────────────────────────────────────
     comments: list[Comment] = []
 
@@ -249,6 +259,7 @@ def scrape_product(html: str, url: str) -> dict:
         old_price=old_price,
         discount_rate=discount_rate,
         currency="MAD",
+        category=category,
     )
     product.set_comments(comments)
     return save_product(product, url, platform="Jumia")

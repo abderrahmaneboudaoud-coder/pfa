@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict
 from repositories.analysis_repository import AnalysisRepository
 
+
 class AnalysisService:
     def __init__(self):
         self.repository = AnalysisRepository()
@@ -150,11 +151,15 @@ class AnalysisService:
         comments = self.repository.get_comments(product["url"])
         return self.repository.compute_sentiment(comments)
 
-    def get_platform_overview(self) -> dict:
+    def get_categories(self) -> List[str]:
+        """Return all distinct product categories from the database."""
+        return self.repository.get_all_categories()
+
+    def get_platform_overview(self, category: Optional[str] = None) -> dict:
         """Aggregated per-platform stats for the Platform Intelligence page."""
         from datetime import datetime, timezone, timedelta
 
-        all_products = self.repository.get_all_products()
+        all_products = self.repository.get_all_products(category=category)
         now    = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=7)
 

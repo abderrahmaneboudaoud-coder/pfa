@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   api,
   type ApiProduct,
@@ -100,106 +100,160 @@ function PlatformBadge({ platform }: { platform: string | null }) {
   );
 }
 
-// Searchable product selector dropdown
-function ProductSelector({
-  products, value, onChange, excludeId,
+// Cross-platform product search: type a name, pick one result per platform
+function CrossPlatformSelector({
+  products,
+  selectedA,
+  selectedB,
+  onSelectA,
+  onSelectB,
 }: {
   products: ApiProduct[];
-  value: string;
-  onChange: (id: string) => void;
-  excludeId?: string;
+  selectedA: string;
+  selectedB: string;
+  onSelectA: (id: string) => void;
+  onSelectB: (id: string) => void;
 }) {
-  const [open, setOpen]     = useState(false);
   const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const filtered = useMemo(() => {
+    if (!search.trim()) return [];
+    const q = search.toLowerCase();
+    return products.filter(p => p.name?.toLowerCase().includes(q)).slice(0, 40);
+  }, [products, search]);
 
-  const filtered = useMemo(() =>
-    products
-      .filter(p => p._id !== excludeId)
-      .filter(p => {
-        if (!search) return true;
-        const q = search.toLowerCase();
-        return p.name?.toLowerCase().includes(q) || p.platform?.toLowerCase().includes(q);
-      })
-      .slice(0, 30),
-    [products, excludeId, search]
-  );
+  // Group filtered results by platform
+  const byPlatform = useMemo(() => {
+    const map: Record<string, ApiProduct[]> = {};
+    for (const p of filtered) {
+      const pl = p.platform ?? "Unknown";
+      (map[pl] = map[pl] ?? []).push(p);
+    }
+    return map;
+  }, [filtered]);
 
-  const selected = products.find(p => p._id === value);
-  const pColor   = PLATFORM_COLORS[selected?.platform ?? ""] ?? "#78716c";
+  const productA = products.find(p => p._id === selectedA);
+  const productB = products.find(p => p._id === selectedB);
+  const samePlatform = !!(productA && productB && productA.platform === productB.platform);
+
+  function SelectedChip({ product, label, color, onClear }: { product: ApiProduct; label: string; color: string; onClear: () => void }) {
+    const pColor = PLATFORM_COLORS[product.platform ?? ""] ?? "#78716c";
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl border border-stone-200 shadow-sm">
+        <span className="text-[10px] font-black px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: color }}>{label}</span>
+        <div className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center text-white text-[9px] font-black" style={{ backgroundColor: pColor }}>
+          {product.platform?.[0] ?? "?"}
+        </div>
+        <span className="text-xs font-semibold text-stone-700 truncate max-w-45">{product.name ?? "Unnamed"}</span>
+        <span className="text-[10px] font-semibold" style={{ color: pColor }}>{product.platform}</span>
+        <button onClick={onClear} className="ml-auto text-stone-300 hover:text-stone-500">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-w-0" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-stone-200 rounded-xl hover:border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-200 transition-colors text-left"
-      >
-        {selected ? (
-          <>
-            {selected.img_url
-              ? <img src={selected.img_url} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 bg-stone-100" />
-              : <div className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: pColor }}>{selected.platform?.[0] ?? "?"}</div>
-            }
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-stone-800 truncate">{selected.name ?? "Unnamed"}</p>
-              <PlatformBadge platform={selected.platform} />
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-stone-400 flex-1">Select a product…</p>
-        )}
-        <svg className={`w-4 h-4 text-stone-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+    <div className="space-y-4">
+      {/* Instruction */}
+      <div className="flex items-start gap-2.5 p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+        <svg className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <p className="text-xs text-indigo-700 font-medium">
+          Search for a product name (e.g. "iPhone 15"), then assign results from <strong>different platforms</strong> as Product A and B for a meaningful comparison.
+        </p>
+      </div>
 
-      {open && (
-        <div className="absolute z-30 mt-1.5 w-full bg-white border border-stone-200 rounded-xl shadow-xl overflow-hidden" style={{ minWidth: 260 }}>
-          <div className="p-2 border-b border-stone-100">
-            <input
-              autoFocus
-              type="text"
-              placeholder="Search products…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onClick={e => e.stopPropagation()}
-              className="w-full px-3 py-2 text-sm bg-stone-50 rounded-lg focus:outline-none placeholder:text-stone-400"
-            />
+      {/* Search box */}
+      <div className="relative">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" strokeLinecap="round" />
+        </svg>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search product name across all platforms…"
+          className="w-full pl-9 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-stone-200 placeholder:text-stone-400"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-500">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        )}
+      </div>
+
+      {/* Search results grouped by platform */}
+      {search && (
+        <div>
+          {filtered.length === 0 ? (
+            <p className="text-sm text-stone-400 text-center py-4">No products found for "{search}"</p>
+          ) : (
+            <div className="space-y-3">
+              {Object.entries(byPlatform).map(([platform, items]) => {
+                const pColor = PLATFORM_COLORS[platform] ?? "#78716c";
+                return (
+                  <div key={platform} className="rounded-xl border border-stone-100 overflow-hidden">
+                    <div className="px-3 py-1.5 flex items-center gap-2" style={{ backgroundColor: `${pColor}12` }}>
+                      <div className="w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px] font-black" style={{ backgroundColor: pColor }}>
+                        {platform[0]}
+                      </div>
+                      <span className="text-xs font-black" style={{ color: pColor }}>{platform}</span>
+                      <span className="text-[10px] text-stone-400 ml-auto">{items.length} result{items.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="divide-y divide-stone-50">
+                      {items.slice(0, 5).map(p => {
+                        const isA = selectedA === p._id;
+                        const isB = selectedB === p._id;
+                        return (
+                          <div key={p._id} className="flex items-center gap-3 px-3 py-2.5 bg-white hover:bg-stone-50 transition-colors">
+                            {p.img_url
+                              ? <img src={p.img_url} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0 bg-stone-100" />
+                              : <div className="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-white text-xs font-black" style={{ backgroundColor: pColor }}>{platform[0]}</div>
+                            }
+                            <p className="flex-1 text-sm text-stone-700 font-medium truncate">{p.name ?? "Unnamed"}</p>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button
+                                onClick={() => { onSelectA(p._id); setSearch(""); }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${isA ? "bg-indigo-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-indigo-50 hover:text-indigo-700"}`}
+                              >{isA ? "✓ A" : "Set A"}</button>
+                              <button
+                                onClick={() => { onSelectB(p._id); setSearch(""); }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${isB ? "bg-emerald-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-emerald-50 hover:text-emerald-700"}`}
+                              >{isB ? "✓ B" : "Set B"}</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Selected products display */}
+      {(productA || productB) && (
+        <div className="space-y-2 pt-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-stone-400">Selected for comparison</p>
+          <div className="flex gap-3 flex-wrap">
+            {productA
+              ? <SelectedChip product={productA} label="A" color={COLOR_A} onClear={() => onSelectA("")} />
+              : <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 rounded-xl border border-dashed border-stone-200 text-xs text-stone-400"><span className="font-black text-indigo-400">A</span> Not selected</div>
+            }
+            <div className="flex items-center text-stone-300 font-bold text-sm">vs</div>
+            {productB
+              ? <SelectedChip product={productB} label="B" color={COLOR_B} onClear={() => onSelectB("")} />
+              : <div className="flex items-center gap-2 px-3 py-2 bg-stone-50 rounded-xl border border-dashed border-stone-200 text-xs text-stone-400"><span className="font-black text-emerald-500">B</span> Not selected</div>
+            }
           </div>
-          <div className="max-h-52 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <p className="text-xs text-stone-400 text-center py-4">No products found</p>
-            ) : filtered.map(p => (
-              <button
-                key={p._id}
-                type="button"
-                className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-stone-50 transition-colors ${value === p._id ? "bg-stone-50" : ""}`}
-                onClick={() => { onChange(p._id); setOpen(false); setSearch(""); }}
-              >
-                <div className="w-6 h-6 rounded-md flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold" style={{ backgroundColor: PLATFORM_COLORS[p.platform ?? ""] ?? "#78716c" }}>
-                  {p.platform?.[0] ?? "?"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-stone-800 truncate">{p.name ?? "Unnamed"}</p>
-                  <p className="text-[11px] text-stone-400">{p.platform}</p>
-                </div>
-                {value === p._id && (
-                  <svg className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <polyline points="1.5,6 4.5,9 10.5,3" />
-                  </svg>
-                )}
-              </button>
-            ))}
-          </div>
+          {samePlatform && (
+            <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+              Both products are from <strong>{productA?.platform}</strong> — for the most meaningful comparison, select from different platforms.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -212,7 +266,7 @@ function ProductHeroCard({ data, color, label }: { data: ComparisonSide; color: 
   const pColor = PLATFORM_COLORS[s.platform ?? ""] ?? "#78716c";
   return (
     <div className="flex-1 bg-white rounded-2xl border border-stone-200/60 shadow-sm p-5 flex items-start gap-4">
-      <div className="relative flex-shrink-0">
+      <div className="relative shrink-0">
         {s.img_url ? (
           <img src={s.img_url} alt="" className="w-16 h-16 rounded-xl object-cover bg-stone-100" />
         ) : (
@@ -347,7 +401,7 @@ function SentimentPanel({ sentiment, label, color }: { sentiment: SentimentResul
   return (
     <div className="flex-1 bg-white rounded-2xl border border-stone-100 shadow-sm p-5">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
         <p className="text-sm font-bold text-stone-800">{label}</p>
         <span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${overallCfg.text} bg-stone-50`}>
           {sentiment.overall_label}
@@ -382,7 +436,7 @@ function ReviewPanel({ reviews, label, color }: { reviews: Review[]; label: stri
   return (
     <div className="flex-1 min-w-0">
       <div className="flex items-center gap-2 mb-3">
-        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
         <p className="text-sm font-bold text-stone-700">{label}</p>
       </div>
       {reviews.length === 0 ? (
@@ -411,7 +465,7 @@ function ComparisonSkeleton() {
     <div className="space-y-5 mt-2">
       <div className="flex gap-4">
         <Skeleton className="flex-1 h-28" />
-        <div className="w-10 flex items-center justify-center flex-shrink-0">
+        <div className="w-10 flex items-center justify-center shrink-0">
           <div className="w-8 h-8 rounded-full bg-stone-100 animate-pulse" />
         </div>
         <Skeleton className="flex-1 h-28" />
@@ -465,7 +519,6 @@ export function ComparePage() {
   }
 
   const canCompare = !!selectedA && !!selectedB && selectedA !== selectedB;
-  const sameProduct = !!selectedA && selectedA === selectedB;
 
   const priceChart  = useMemo(() => comparison ? mergePriceHistories( comparison.product_a.price_history, comparison.product_b.price_history) : [], [comparison]);
   const ratingChart = useMemo(() => comparison ? mergeRatingHistories(comparison.product_a.price_history, comparison.product_b.price_history) : [], [comparison]);
@@ -475,65 +528,27 @@ export function ComparePage() {
 
       {/* ── Selector card ───────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-stone-200/60 shadow-sm p-5">
-        <h3 className="text-sm font-bold text-stone-800 mb-1">Select Products</h3>
-        <p className="text-xs text-stone-400 mb-5">Choose two products to compare side by side</p>
+        <h3 className="text-sm font-bold text-stone-800 mb-1">Compare Across Platforms</h3>
+        <p className="text-xs text-stone-400 mb-5">Search for a product name, then assign results from different platforms as A and B</p>
 
-        {/* Labels row — perfectly aligned above each selector */}
-        <div className="flex gap-3 mb-2">
-          <div className="flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLOR_A }}>Product A</p>
+        {loadingProducts ? (
+          <div className="flex items-center gap-2 py-4 text-stone-400 text-sm">
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" strokeLinecap="round" />
+            </svg>
+            Loading products…
           </div>
-          <div className="w-10 flex-shrink-0" />
-          <div className="flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: COLOR_B }}>Product B</p>
-          </div>
-        </div>
-
-        {/* Selectors + swap button — all on the same baseline */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <ProductSelector
-              products={allProducts}
-              value={selectedA}
-              onChange={setSelectedA}
-              excludeId={selectedB}
-            />
-          </div>
-
-          <div className="shrink-0">
-            <button
-              type="button"
-              title="Swap products"
-              onClick={() => {
-                const tmp = selectedA;
-                setSelectedA(selectedB);
-                setSelectedB(tmp);
-                setComparison(null);
-              }}
-              disabled={!selectedA && !selectedB}
-              className="w-10 h-10 rounded-full bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors disabled:opacity-30"
-            >
-              <svg className="w-4 h-4 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="relative flex-1">
-            <ProductSelector
-              products={allProducts}
-              value={selectedB}
-              onChange={setSelectedB}
-              excludeId={selectedA}
-            />
-          </div>
-        </div>
-
-        {sameProduct && (
-          <p className="mt-3 text-xs text-amber-600 font-medium">Select two different products to compare.</p>
+        ) : (
+          <CrossPlatformSelector
+            products={allProducts}
+            selectedA={selectedA}
+            selectedB={selectedB}
+            onSelectA={id => { setSelectedA(id); setComparison(null); }}
+            onSelectB={id => { setSelectedB(id); setComparison(null); }}
+          />
         )}
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-5 flex justify-end">
           <button
             onClick={handleCompare}
             disabled={!canCompare || comparing || loadingProducts}
@@ -585,7 +600,7 @@ export function ComparePage() {
           {/* Hero product cards */}
           <div className="flex gap-4">
             <ProductHeroCard data={comparison.product_a} color={COLOR_A} label="A" />
-            <div className="flex items-center justify-center flex-shrink-0 w-10">
+            <div className="flex items-center justify-center shrink-0 w-10">
               <span className="text-lg font-black text-stone-300">vs</span>
             </div>
             <ProductHeroCard data={comparison.product_b} color={COLOR_B} label="B" />
@@ -632,7 +647,7 @@ export function ComparePage() {
             </div>
             <div className="flex gap-6 p-5">
               <ReviewPanel reviews={comparison.product_a.top_reviews} label={nameA} color={COLOR_A} />
-              <div className="w-px bg-stone-100 flex-shrink-0" />
+              <div className="w-px bg-stone-100 shrink-0" />
               <ReviewPanel reviews={comparison.product_b.top_reviews} label={nameB} color={COLOR_B} />
             </div>
           </div>

@@ -23,17 +23,19 @@ def save_product(product, url, platform):
     reviews_count = extract_number(data.get("rev"))
 
     # ---------- UPSERT PRODUCT ----------
+    update_fields = {
+        "name": data.get("name"),
+        "img_url": data.get("img_url"),
+        "platform": platform,
+        "url": url,
+        "last_updated": datetime.utcnow(),
+    }
+    if data.get("category"):
+        update_fields["category"] = data["category"]
+
     products_col.update_one(
         {"url": url},
-        {
-            "$set": {
-                "name": data.get("name"),
-                "img_url": data.get("img_url"),
-                "platform": platform,
-                "url": url,
-                "last_updated": datetime.utcnow(),
-            }
-        },
+        {"$set": update_fields},
         upsert=True
     )
 

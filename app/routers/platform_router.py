@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter
 from services.analysis_service import AnalysisService
 
@@ -5,9 +6,15 @@ router = APIRouter(prefix="/api/platforms", tags=["Platform Analytics"])
 _service = AnalysisService()
 
 
+@router.get("/categories")
+def get_categories():
+    """Return all distinct scraped product categories."""
+    return {"categories": _service.get_categories()}
+
+
 @router.get("/overview")
-def get_platforms_overview():
-    return _service.get_platform_overview()
+def get_platforms_overview(category: Optional[str] = None):
+    return _service.get_platform_overview(category=category)
 
 
 @router.get("/{platform}/top-discounted")

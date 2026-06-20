@@ -16,8 +16,8 @@ from playwright_stealth import Stealth
 def clean(text: str) -> str:
     """Strip extra whitespace from extracted text."""
     return " ".join(text.split()) if text else ""
- 
- 
+
+
 def parse_stars(icon_element) -> float:
     """Extract star rating from an Amazon star icon's alt text."""
     if icon_element:
@@ -29,24 +29,24 @@ def parse_stars(icon_element) -> float:
             if match:
                 return float(match.group(1))
     return 0.0
- 
- 
+
+
 # ─── Scraping Functions ────────────────────────────────────────────────────────
- 
+
 def scrape_product(soup: BeautifulSoup) -> Product:
     """Extract product info from the page soup."""
- 
+
     # --- Name ---
     title_tag = soup.find("span", id="productTitle")
     name = clean(title_tag.get_text()) if title_tag else "N/A"
- 
+
     # --- Image URL ---
     img_tag = soup.find("img", id="landingImage")
     img_url = None
     if img_tag:
         # Prefer high-res version stored in data-old-hires
         img_url = img_tag.get("data-old-hires") or img_tag.get("src")
- 
+
     # --- Stars ---
     stars = 0.0
     avg_reviews_div = soup.find("div", id="averageCustomerReviews")
@@ -57,14 +57,14 @@ def scrape_product(soup: BeautifulSoup) -> Product:
                 stars = float(clean(star_span.get_text()).replace(",", "."))
             except ValueError:
                 pass
- 
+
     # --- Review count ---
     rev_span = soup.find("span", id="acrCustomerReviewText")
     rev = clean(rev_span.get_text()) if rev_span else "0"
     # strip parentheses e.g. "(4,558)"
     rev = rev.strip("()")
 
- 
+
     # --- Current price & currency ---
     price = None
     currency = None
@@ -131,7 +131,7 @@ def scrape_product(soup: BeautifulSoup) -> Product:
             price = apex_price
             if currency is None:
                 currency = apex_currency
- 
+
     # --- Old / RRP price ---
     old_price = None
     basis_price = soup.find("span", class_="basisPrice")
@@ -139,7 +139,7 @@ def scrape_product(soup: BeautifulSoup) -> Product:
         old_offscreen = basis_price.find("span", class_="a-offscreen")
         if old_offscreen:
             old_price = clean(old_offscreen.get_text())
- 
+
     # --- Discount rate ---
     discount_rate = None
     discount_span = soup.find("span", class_="savingsPercentage")
@@ -148,7 +148,18 @@ def scrape_product(soup: BeautifulSoup) -> Product:
         discount_span = soup.find("span", class_=lambda c: c and "savingPriceOverride" in c)
     if discount_span:
         discount_rate = clean(discount_span.get_text())
- 
+
+    # Category from breadcrumb navigation
+    category = None
+    breadcrumb = soup.find("div", id="wayfinding-breadcrumbs_feature_div")
+    if breadcrumb:
+        links = breadcrumb.find_all("a", class_="a-link-normal")
+        for link in links:
+            text = clean(link.get_text())
+            if text and text.lower() not in ("all departments", "see all", ""):
+                category = text
+                break
+
     return Product(
         img_url=img_url,
         price=price,
@@ -158,54 +169,66 @@ def scrape_product(soup: BeautifulSoup) -> Product:
         old_price=old_price,
         discount_rate=discount_rate,
         currency=currency,
+        category=category,
     )
- 
- 
+
+
 def scrape_comments(soup: BeautifulSoup) -> list[Comment]:
     """Extract customer reviews from the page soup."""
     comments = []
- 
+
     review_divs = soup.find_all(attrs={"data-hook": "review"})
- 
+
     for div in review_divs:
         # Username
         profile_name = div.find("span", class_="a-profile-name")
         username = clean(profile_name.get_text()) if profile_name else "Anonymous"
- 
+
         # Stars
         star_icon = div.find("i", attrs={"data-hook": "review-star-rating"})
         if not star_icon:
             star_icon = div.find("i", attrs={"data-hook": "cmps-review-star-rating"})
         stars = parse_stars(star_icon)
- 
+
         # Review title
-        title_tag = div.find("a", attrs={"data-hook": "review-title"})
-        if not title_tag:
-            title_tag = div.find("span", attrs={"data-hook": "review-title"})
-        # The title anchor contains the star icon + a span with the text
+        # Amazon now uses data-hook="reviewTitle" (camelCase) on an <h5> element.
+        # Fall back to the legacy hyphenated form just in case.
+        title_tag = (
+            div.find(attrs={"data-hook": "reviewTitle"}) or
+            div.find(attrs={"data-hook": "review-title"})
+        )
         title = ""
         if title_tag:
-            # Remove star icon text, keep only the actual title spans
-            for span in title_tag.find_all("span"):
-                t = clean(span.get_text())
-                if t and "out of 5" not in t and t != "|":
-                    title = t
-                    break
-            if not title:
-                title = clean(title_tag.get_text())
- 
+            title = clean(title_tag.get_text())
+            # Strip any leaked star-icon text ("5 out of 5 stars") from legacy layouts
+            title = re.sub(r"\d+\.?\d*\s+out of\s+\d+\s+stars?", "", title, flags=re.I).strip()
+
         # Review date
         date_span = div.find("span", attrs={"data-hook": "review-date"})
         date = clean(date_span.get_text()) if date_span else ""
- 
+
         # Review body
-        body_span = div.find("span", attrs={"data-hook": "review-body"})
-        if body_span:
-            collapsed = body_span.find("div", attrs={"data-hook": "review-collapsed"})
-            comment_text = clean(collapsed.get_text()) if collapsed else clean(body_span.get_text())
-        else:
-            comment_text = ""
- 
+        # Amazon's current HTML puts the review text inside:
+        #   <div data-hook="reviewRichContentContainer"><p><span>text</span></p></div>
+        # which lives inside data-hook="reviewText" / data-hook="reviewTextContainer".
+        # Fall back through several selectors for older page layouts.
+        body_el = (
+            div.find(attrs={"data-hook": "reviewRichContentContainer"}) or
+            div.find(attrs={"data-hook": "reviewText"}) or
+            div.find(attrs={"data-hook": "reviewTextContainer"}) or
+            div.find(attrs={"data-hook": "review-body"}) or
+            div.find(class_="review-text-content") or
+            div.find(class_="review-text")
+        )
+        comment_text = ""
+        if body_el:
+            # Remove hidden accessibility hints and "Read more/less" button text
+            for hidden in body_el.find_all(class_="a-hidden"):
+                hidden.decompose()
+            for trigger in body_el.find_all(class_=lambda c: c and "a-expander-trigger" in c):
+                trigger.decompose()
+            comment_text = clean(body_el.get_text())
+
         comments.append(Comment(
             stars=stars,
             title=title,
@@ -213,7 +236,7 @@ def scrape_comments(soup: BeautifulSoup) -> list[Comment]:
             date=date,
             username=username,
         ))
- 
+
     return comments
 
 
@@ -243,10 +266,10 @@ def _isolated_sync_scrape(url):
 
         raw_content = page.content()
         browser.close()
-        
+
         return raw_content
 
- 
+
 # Scrape product
 def scrap_process(url):
 
@@ -255,7 +278,7 @@ def scrap_process(url):
         raw_content = future.result()
 
     soup = BeautifulSoup(raw_content, "html.parser")
-    
+
     product = scrape_product(soup)
 
     comments = scrape_comments(soup)

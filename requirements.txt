@@ -45,3 +45,6 @@ playwright_stealth
 transformers
 sentencepiece
 google-generativeai
+vaderSentiment
+wordcloud
+Pillow
